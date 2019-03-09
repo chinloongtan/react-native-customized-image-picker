@@ -33,7 +33,7 @@ dependencies {
     implementation 'com.mg.RxCustomizedImagePicker:library:0.0.25'
     //rxgalleryfinal依赖appcompat-v7和recyclerview-v7扩展卡库
     // implementation 'com.android.support:recyclerview-v8:27.1.1'
-    implementation "com.android.support:recyclerview-v7:${rootProject.ext.supportLibVersion}"
+    implementation "com.android.support:recyclerview-v7:${rootProject.ext.buildToolsVersion}"
 
     implementation 'com.squareup.picasso:picasso:2.5.2'
     implementation 'com.facebook.fresco:fresco:1.3.0'
