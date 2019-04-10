@@ -1,11 +1,14 @@
 package com.mg.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.util.Base64;
 import android.webkit.MimeTypeMap;
+import android.support.v4.app.ActivityCompat;
+import android.content.pm.PackageManager;
 
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -20,6 +23,9 @@ import com.nostra13.universalimageloader.cache.disc.naming.Md5FileNameGenerator;
 import com.nostra13.universalimageloader.core.ImageLoader;
 import com.nostra13.universalimageloader.core.ImageLoaderConfiguration;
 import com.nostra13.universalimageloader.core.assist.QueueProcessingType;
+import com.facebook.react.bridge.Callback;
+import com.facebook.react.modules.core.PermissionAwareActivity;
+import com.facebook.react.modules.core.PermissionListener;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -28,6 +34,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.concurrent.Callable;
 
 import cn.finalteam.rxgalleryfinal.RxGalleryFinal;
 import cn.finalteam.rxgalleryfinal.RxGalleryFinalApi;
@@ -42,6 +51,8 @@ import cn.finalteam.rxgalleryfinal.ui.base.IRadioImageCheckedListener;
 
 class PickerModule extends ReactContextBaseJavaModule {
     private static final String E_ACTIVITY_DOES_NOT_EXIST = "E_ACTIVITY_DOES_NOT_EXIST";
+    private static final String E_CALLBACK_ERROR = "E_CALLBACK_ERROR";
+    private static final String E_PERMISSIONS_MISSING = "E_PERMISSION_MISSING";
 
     private Promise mPickerPromise;
 
@@ -195,17 +206,55 @@ class PickerModule extends ReactContextBaseJavaModule {
         ImageLoader.getInstance().init(config.build());
     }
 
-    @ReactMethod
-    public void openPicker(final ReadableMap options, final Promise promise) {
-        final Activity activity = getCurrentActivity();
+    private void permissionsCheck(final Activity activity, final Promise promise, final List<String> requiredPermissions, final Callable<Void> callback) {
 
-        if (activity == null) {
-            promise.reject(E_ACTIVITY_DOES_NOT_EXIST, "Activity doesn't exist");
+        List<String> missingPermissions = new ArrayList<>();
+
+        for (String permission : requiredPermissions) {
+            int status = ActivityCompat.checkSelfPermission(activity, permission);
+            if (status != PackageManager.PERMISSION_GRANTED) {
+                missingPermissions.add(permission);
+            }
+        }
+
+        if (!missingPermissions.isEmpty()) {
+
+            ((PermissionAwareActivity) activity).requestPermissions(missingPermissions.toArray(new String[missingPermissions.size()]), 1, new PermissionListener() {
+
+                @Override
+                public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                    if (requestCode == 1) {
+
+                        for (int grantResult : grantResults) {
+                            if (grantResult == PackageManager.PERMISSION_DENIED) {
+                                promise.reject(E_PERMISSIONS_MISSING, "Required permission missing");
+                                return true;
+                            }
+                        }
+
+                        try {
+                            callback.call();
+                        } catch (Exception e) {
+                            promise.reject(E_CALLBACK_ERROR, "Unknown error", e);
+                        }
+                    }
+
+                    return true;
+                }
+            });
+
             return;
         }
 
-        setConfiguration(options);
-        initImageLoader(activity);
+        // all permissions granted
+        try {
+            callback.call();
+        } catch (Exception e) {
+            promise.reject(E_CALLBACK_ERROR, "Unknown error", e);
+        }
+    }
+
+    private void initiatePicker(final Activity activity, final Promise promise) {
         mPickerPromise = promise;
 
         RxGalleryFinal rxGalleryFinal =  RxGalleryFinal.with(activity);
@@ -332,6 +381,27 @@ class PickerModule extends ReactContextBaseJavaModule {
                     })
                     .openGallery();
         }
+    }
+
+    @ReactMethod
+    public void openPicker(final ReadableMap options, final Promise promise) {
+        final Activity activity = getCurrentActivity();
+
+        if (activity == null) {
+            promise.reject(E_ACTIVITY_DOES_NOT_EXIST, "Activity doesn't exist");
+            return;
+        }
+
+        setConfiguration(options);
+        initImageLoader(activity);
+
+        permissionsCheck(activity, promise, Collections.singletonList(Manifest.permission.WRITE_EXTERNAL_STORAGE), new Callable<Void>() {
+            @Override
+            public Void call() {
+                initiatePicker(activity, promise);
+                return null;
+            }
+        });
     }
 
     @ReactMethod
